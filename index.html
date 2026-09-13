@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>yomibako — a source list</title>
+<meta name="description" content="A community-maintained list of manga sources, in the format Kuma reads. Unsigned, unaffiliated, and provided as-is." />
+<meta name="color-scheme" content="dark light" />
+<style>
+  :root { --bg:#0d0d0f; --fg:#f2f0ed; --dim:#9a968f; --line:#26252a; --accent:#e8482d; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#faf8f5; --fg:#17161a; --dim:#66625c; --line:#e2ded7; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 34rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+  h1 { font-size: 1.6rem; letter-spacing: -0.02em; margin: 0 0 .25rem; }
+  .sub { color: var(--dim); margin: 0 0 2.5rem; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+       color: var(--dim); margin: 2.5rem 0 .75rem; font-weight: 700; }
+  p { margin: 0 0 1rem; }
+  a { color: inherit; }
+  .add {
+    display: block; text-align: center; text-decoration: none;
+    background: var(--accent); color: #fff; font-weight: 700;
+    padding: 1rem; border-radius: 14px; margin: 0 0 .75rem;
+  }
+  .hint { color: var(--dim); font-size: .85rem; text-align: center; margin: 0 0 2rem; }
+  code, .addr {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem;
+  }
+  .addr {
+    display: block; width: 100%; padding: .85rem; border-radius: 10px;
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    overflow-x: auto; white-space: nowrap;
+  }
+  .note { border-top: 1px solid var(--line); margin-top: 3rem; padding-top: 1.5rem;
+          color: var(--dim); font-size: .875rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>yomibako</h1>
+  <p class="sub">A community-maintained list of manga sources, in the format Kuma reads.</p>
+
+  <a class="add" href="kuma://add-source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fyomibako%2Fsources%2Fmain%2Fcommunity.json">Add to Kuma</a>
+  <p class="hint">Opens Kuma with the address filled in. Nothing is added until you tap Install.</p>
+
+  <h2>Or paste it yourself</h2>
+  <p>In Kuma, open <b>More › Sources</b> and paste this:</p>
+  <input class="addr" readonly value="https://raw.githubusercontent.com/yomibako/sources/main/community.json"
+         onclick="this.select()" aria-label="Source list address" />
+
+  <h2>What this is</h2>
+  <p>A manifest and a set of small JavaScript files. Each one knows how to read a
+  public website and turn it into chapters. The list is unsigned, so any reader
+  that installs it will say so — that label is accurate and you should believe it.</p>
+
+  <h2>What this is not</h2>
+  <p>This is not Kuma, and nobody who works on Kuma runs it, endorses it, or
+  vouches for what any listed site hosts. Nothing here stores, mirrors or serves a
+  single page of manga — the files only describe how to read sites that already
+  exist, and your device talks to those sites directly.</p>
+  <p>No warranty of any kind. Sites break, disappear, and change hands without
+  notice. Use what you have the right to use, and support the people who make the
+  work.</p>
+
+  <p class="note">Contents: <a href="https://github.com/yomibako/sources">github.com/yomibako/sources</a>.
+  Open an issue there if a source has broken.</p>
+</main>
+</body>
+</html>
