@@ -30,6 +30,9 @@
     padding: 1rem; border-radius: 14px; margin: 0 0 .75rem;
   }
   .hint { color: var(--dim); font-size: .85rem; text-align: center; margin: 0 0 2rem; }
+  /* Shown only after the button failed to leave the page — a link to an app you
+     don't have does nothing at all, and silence is the worst answer. */
+  .miss { display: none; margin-top: -1.5rem; }
   code, .addr {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem;
   }
@@ -47,8 +50,9 @@
   <h1>yomibako</h1>
   <p class="sub">A community-maintained list of manga sources, in the format Kuma reads.</p>
 
-  <a class="add" href="kuma://add-source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fyomibako%2Fsources%2Fmain%2Fcommunity.json">Add to Kuma</a>
+  <a class="add" id="add" href="kuma://add-source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fyomibako%2Fsources%2Fmain%2Fcommunity.json">Add to Kuma</a>
   <p class="hint">Opens Kuma with the address filled in. Nothing is added until you tap Install.</p>
+  <p class="hint miss" id="miss">Nothing happened? This needs Kuma installed on an iPhone. Otherwise, copy the address below.</p>
 
   <h2>Or paste it yourself</h2>
   <p>In Kuma, open <b>More › Sources</b> and paste this:</p>
@@ -72,5 +76,13 @@
   <p class="note">Contents: <a href="https://github.com/yomibako/sources">github.com/yomibako/sources</a>.
   Open an issue there if a source has broken.</p>
 </main>
+<script>
+  // If the app is installed the page goes to the background and this never runs.
+  document.getElementById('add').addEventListener('click', function () {
+    setTimeout(function () {
+      if (!document.hidden) document.getElementById('miss').style.display = 'block';
+    }, 1200);
+  });
+</script>
 </body>
 </html>
