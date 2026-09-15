@@ -22,6 +22,8 @@
  *                 The host reads a page of fewer than 20 as the end of the
  *                 list, so anything under 20 means two site pages per Kuma
  *                 page or browsing stops dead after the first screen.
+ *                 Search reads the smaller of this and 10 — see
+ *                 searchRowsPerPage.
  *   chapterSource Where the chapter list comes from: "ajax" (default),
  *                 "page", or "api". See getChapterList.
  *
@@ -82,6 +84,20 @@ function rowsPerPage() {
 /** Two site pages per Kuma page while a page holds fewer than 20 rows. */
 function sitePagesPerPage() {
   return rowsPerPage() >= 20 ? 1 : 2;
+}
+
+/**
+ * Rows a *search* page holds, which is not the browse grid's count.
+ *
+ * WordPress answers a search with its own `posts_per_page` — ten unless the
+ * site changed it — while the Madara grid is configured separately at 12, 20
+ * or 36. This number is only ever used to tell a search page that came back
+ * *short* from one the site filled, so it takes the smaller of the two: over-
+ * estimating would read a full page of ten as short and drop every match past
+ * the tenth, silently, which is the one outcome worse than a wasted request.
+ */
+function searchRowsPerPage() {
+  return Math.min(rowsPerPage(), 10);
 }
 
 var SELECTORS = {
@@ -319,12 +335,26 @@ function dateFrom(text) {
  * `urlFor` takes a site page number. A second fetch is only made when the site
  * serves fewer than 20 rows a page, and is skipped when the first came back
  * empty, so running off the end of the catalogue costs one request not two.
+ *
+ * `fullPageRows` skips it in one more case: a first page the site did not fill.
+ * Only search passes it. A search that came back short has run out of matches,
+ * so the second page holds nothing — and it was the biggest measured cost in a
+ * global search, because Kuma asks every installed source at once and pays a
+ * round trip, one of its own 500ms rate-limit slots and a full parse for each
+ * of those empty pages. Browse passes nothing: someone scrolling a catalogue
+ * really is asking for the next screen.
+ *
+ * This cannot break paging, which is the only reason two pages are read at
+ * all. `fullPageRows` is never more than 10, so a page short of it is short of
+ * the 20 rows the host needs to offer a next page — it stops, correctly, since
+ * the page we skipped was empty anyway.
  */
-function listingPage(urlFor, page) {
+function listingPage(urlFor, page, fullPageRows) {
   var n = pageNumber(page);
   var span = sitePagesPerPage();
   var first = parseListing(kuma.http.get(urlFor((n - 1) * span + 1)));
   if (!first.length || span === 1) return first;
+  if (fullPageRows && first.length < fullPageRows) return first;
 
   var out = first.slice(0);
   var seen = {};
@@ -499,7 +529,7 @@ var KumaSource = {
     var encoded = encodeURIComponent(text);
     return listingPage(function (n) {
       return pagedPath('/', n, '?s=' + encoded + '&post_type=wp-manga');
-    }, page);
+    }, page, searchRowsPerPage());
   },
 
   getMangaDetails: function (url) {

@@ -44,6 +44,13 @@
 // request for the same rule — the alternative is an index that drifts.
 var SITE_PAGES_PER_KUMA_PAGE = 2;
 
+// Those ten search hits, as a number: it is WordPress's own `posts_per_page`,
+// which every one of these themes leaves alone for search even where it sets
+// the browse grid to 20, 40 or 95. Used only to tell a search page the site
+// filled from one it did not — see listingPage. Deliberately the low end of
+// what a site might serve: reading a full page as short would drop matches.
+var SEARCH_ROWS_PER_PAGE = 10;
+
 var SELECTORS = {
   // The theme's grid cell. `div.listupd` is the container around it and is the
   // fallback for sites whose child theme renamed the cell but kept the grid.
@@ -226,13 +233,27 @@ function parseListing(html) {
  * the end of a small catalogue costs one request rather than two, and must not
  * be able to fail the first — some sites answer a past-the-end page with a 404
  * and losing a good page of results to that would make search look broken.
+ *
+ * `fullPageRows` skips it in one more case: a first page the site did not fill.
+ * Only search passes it. A search that came back short has run out of matches,
+ * so the second page holds nothing — and it was the biggest measured cost in a
+ * global search, because Kuma asks every installed source at once and pays a
+ * round trip, one of its own 500ms rate-limit slots and a full parse for each
+ * of those empty pages. Browse passes nothing: someone scrolling a catalogue
+ * really is asking for the next screen.
+ *
+ * This cannot break paging, which is the only reason two pages are read at
+ * all. `fullPageRows` is ten, so a page short of it is short of the 20 rows the
+ * host needs to offer a next page — it stops, correctly, since the page we
+ * skipped was empty anyway.
  */
-function listingPage(urlFor, page) {
+function listingPage(urlFor, page, fullPageRows) {
   var n = pageNumber(page);
   var base = (n - 1) * SITE_PAGES_PER_KUMA_PAGE + 1;
 
   var out = parseListing(kuma.http.get(urlFor(base)));
   if (!out.length) return [];
+  if (fullPageRows && out.length < fullPageRows) return out;
 
   var seen = {};
   for (var s = 0; s < out.length; s++) seen[out[s].url] = true;
@@ -390,7 +411,7 @@ var KumaSource = {
   },
 
   fetchSearch: function (text, page) {
-    return listingPage(function (n) { return searchUrl(n, text); }, page);
+    return listingPage(function (n) { return searchUrl(n, text); }, page, SEARCH_ROWS_PER_PAGE);
   },
 
   getMangaDetails: function (url) {
