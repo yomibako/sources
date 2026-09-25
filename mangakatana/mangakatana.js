@@ -10,6 +10,16 @@
  * The other trap is the listing heading, which reads
  * `"Some Title - Update chapter 2"` — the update note is a sibling of the
  * link, so the anchor's text is the title and the heading's is not.
+ *
+ * Search has three answers that aren't a results page, and each used to be
+ * read wrong (see `fetchSearch`):
+ * - exactly one match redirects straight to that title's page;
+ * - no match at all is a 404;
+ * - a search within about three seconds of the last one from the same
+ *   connection answers 200 with an empty body. Measured 2026-09-24: searches
+ *   spaced 3s apart all answered, spaced under ~2.5s most came back empty.
+ *   Only search is held back this way; title pages and listings answer at
+ *   any speed.
  */
 
 var SELECTORS = {
@@ -27,6 +37,20 @@ var SELECTORS = {
   chapterLink: "a[href*='/manga/']",
   chapterDate: 'div.update_time'
 };
+
+// The host's wording for its two failures that aren't the site failing. A
+// failed request only reaches the bundle as a message (`tryGet` reports
+// status 0 for every failure), so the message is all there is to go on. If
+// the app ever rewords them, search falls back to throwing, which is what it
+// did before, so nothing gets worse.
+var NOT_FOUND = /doesn.t have this/i;
+var NOTHING_BACK = /sent nothing back/i;
+
+// Enough tries to outlast the site's search spacing. The host already spaces
+// this source's requests half a second apart and a held-back answer takes
+// under 0.2s, so ten tries cover about five seconds. The live test needed
+// four to six after a search made just before.
+var SEARCH_TRIES = 10;
 
 // The reader's images all come from a numbered subdomain; nothing else on the
 // page does.
@@ -83,6 +107,101 @@ function parseListing(html) {
   return out;
 }
 
+/** Everything the title page says about a title. */
+function readTitlePage(doc, slug) {
+  var details = { url: '/manga/' + slug, status: 'Unknown', genres: [] };
+
+  var heading = doc.selectFirst(SELECTORS.detailTitle);
+  if (heading) details.title = heading.text();
+
+  var summary = doc.selectFirst(SELECTORS.detailSummary);
+  if (summary) details.description = summary.text();
+
+  var cover = doc.selectFirst('div.cover ' + SELECTORS.cover) || doc.selectFirst(SELECTORS.cover);
+  if (cover) details.thumbnailUrl = cover.absAttr('src');
+
+  // Label/value rows with no class naming the field, so matched on wording.
+  var rows = doc.select(SELECTORS.metaRow);
+  for (var i = 0; i < rows.length; i++) {
+    var label = rows[i].selectFirst(SELECTORS.metaLabel);
+    var value = rows[i].selectFirst(SELECTORS.metaValue);
+    if (!label || !value) continue;
+    var name = label.text().toLowerCase();
+
+    if (name.indexOf('alt name') >= 0) {
+      // "ドメスティックな彼女 ; Domestic Girlfriend ; …"
+      var alts = value.text().split(';');
+      details.altTitles = [];
+      for (var a = 0; a < alts.length; a++) {
+        var alt = alts[a].replace(/^\s+|\s+$/g, '');
+        if (alt) details.altTitles.push(alt);
+      }
+    } else if (name.indexOf('author') >= 0) {
+      details.author = value.text();
+    } else if (name.indexOf('genre') >= 0) {
+      var links = value.select('a');
+      for (var g = 0; g < links.length; g++) {
+        var genre = links[g].text();
+        if (genre) details.genres.push(genre);
+      }
+    } else if (name.indexOf('status') >= 0) {
+      details.status = statusOf(value.text());
+    }
+  }
+  return details;
+}
+
+/**
+ * The one title a search answered with, when the site skipped the results
+ * page and went straight to it. Null when the page is anything else.
+ *
+ * Told apart by the page itself — a title heading and a chapter table, and
+ * no results grid — with the address it landed on as the preferred source of
+ * the title's slug. The canonical link is the fallback, for a host that
+ * doesn't report where a redirect ended up.
+ */
+function titlePageResult(html, finalUrl) {
+  var doc = kuma.html.parse(html);
+  if (doc.selectFirst(SELECTORS.listingRow) || doc.selectFirst('div#book_list')) return null;
+  if (!doc.selectFirst('h1.heading') || !doc.selectFirst('div.chapters')) return null;
+
+  var slug = kuma.regex.first('^https?://[^/]+/manga/([^/?#]+)', '', String(finalUrl || ''));
+  if (!slug) {
+    var canonical = doc.selectFirst("link[rel='canonical']") || doc.selectFirst("meta[property='og:url']");
+    var href = canonical ? (canonical.attr('href') || canonical.attr('content')) : '';
+    slug = kuma.regex.first('/manga/([^/?#]+)', '', String(href || ''));
+  }
+  if (!slug) return null;
+
+  var details = readTitlePage(doc, slug);
+  return details.title ? details : null;
+}
+
+/**
+ * Fetches a search page, or null when the site says there are no matches.
+ *
+ * Retries only the empty "slow down" answer. Everything else that fails —
+ * a block, a timeout, a search the app stopped waiting for — throws at once
+ * with the host's own message, exactly as `kuma.http.get` would.
+ */
+function searchResponse(url) {
+  for (var attempt = 0; attempt < SEARCH_TRIES; attempt++) {
+    var res = kuma.http.tryGet(url) || {};
+    if (res.ok && res.body) return res;
+
+    var error = res.ok ? 'The source sent nothing back.' : String(res.error || ('HTTP ' + (res.status || 0)));
+    // The site's own "no results" page comes with a 404.
+    if (NOT_FOUND.test(error)) return null;
+    if (!NOTHING_BACK.test(error)) throw new Error(error);
+    // Asked again too soon after the last search. Ask again: the host's
+    // spacing between tries is the wait.
+  }
+  // Still held back after about five seconds: something else on this
+  // connection is searching the site too. Said plainly rather than as "sent
+  // nothing back", which reads as the site being broken.
+  throw new Error('The site is asking us to slow down. Try again in a moment.');
+}
+
 var KumaSource = {
   fetchPopular: function (page) {
     return parseListing(kuma.http.get(kuma.baseUrl + '/manga/page/' + pageNumber(page)));
@@ -93,47 +212,22 @@ var KumaSource = {
   },
 
   fetchSearch: function (text, page) {
-    return parseListing(kuma.http.get(
+    var res = searchResponse(
       kuma.baseUrl + '/page/' + pageNumber(page)
       + '?search=' + encodeURIComponent(text) + '&search_by=book_name'
-    ));
+    );
+    if (!res) return [];
+
+    // A unique match lands on the title's own page, which has no result rows.
+    var rows = parseListing(res.body);
+    if (rows.length) return rows;
+    var only = titlePageResult(res.body, res.url);
+    return only ? [only] : [];
   },
 
   getMangaDetails: function (url) {
     var slug = slugFrom(url);
-    var doc = kuma.html.parse(kuma.http.get(kuma.baseUrl + '/manga/' + slug));
-    var details = { url: '/manga/' + slug, status: 'Unknown', genres: [] };
-
-    var heading = doc.selectFirst(SELECTORS.detailTitle);
-    if (heading) details.title = heading.text();
-
-    var summary = doc.selectFirst(SELECTORS.detailSummary);
-    if (summary) details.description = summary.text();
-
-    var cover = doc.selectFirst('div.cover ' + SELECTORS.cover) || doc.selectFirst(SELECTORS.cover);
-    if (cover) details.thumbnailUrl = cover.absAttr('src');
-
-    // Label/value rows with no class naming the field, so matched on wording.
-    var rows = doc.select(SELECTORS.metaRow);
-    for (var i = 0; i < rows.length; i++) {
-      var label = rows[i].selectFirst(SELECTORS.metaLabel);
-      var value = rows[i].selectFirst(SELECTORS.metaValue);
-      if (!label || !value) continue;
-      var name = label.text().toLowerCase();
-
-      if (name.indexOf('author') >= 0) {
-        details.author = value.text();
-      } else if (name.indexOf('genre') >= 0) {
-        var links = value.select('a');
-        for (var g = 0; g < links.length; g++) {
-          var genre = links[g].text();
-          if (genre) details.genres.push(genre);
-        }
-      } else if (name.indexOf('status') >= 0) {
-        details.status = statusOf(value.text());
-      }
-    }
-    return details;
+    return readTitlePage(kuma.html.parse(kuma.http.get(kuma.baseUrl + '/manga/' + slug)), slug);
   },
 
   getChapterList: function (url) {

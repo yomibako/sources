@@ -104,6 +104,53 @@ function chapterNameFrom(anchor) {
   return whole.replace(/\s*Last Read\s*$/i, '').trim();
 }
 
+/**
+ * Numbers a seasoned webtoon's chapters straight through.
+ *
+ * Weeb Central names some webtoons' chapters "S3 - Chapter 235", and reading
+ * the first number in the name made every one of Tower of God's 652 chapters
+ * chapter 1, 2 or 3. An import then saw a source "up to 3" for someone 200 in
+ * and turned it away (2026-09-24).
+ *
+ * Taking the number after "Chapter" isn't enough either, when a season starts
+ * again from 1: "read up to 200" would then mark chapters 1 to 200 of every
+ * season. So each season that restarts is moved past the end of the one
+ * before it. A season that carries on from the last one's numbers is left as
+ * it is, and so is any list with no season prefixes, which is nearly all of them.
+ */
+function runSeasonsOn(chapters) {
+  var pattern = /^S(\d+)\s*[-:\u2013]\s*(?:Chapter|Episode|Ep\.?)\s*([0-9]+(?:\.[0-9]+)?)/i;
+  var seasons = {};
+  var parsed = [];
+  for (var i = 0; i < chapters.length; i++) {
+    var m = pattern.exec(chapters[i].name || '');
+    if (!m) { parsed.push(null); continue; }
+    var season = parseInt(m[1], 10);
+    var number = parseFloat(m[2]);
+    parsed.push({ season: season, number: number });
+    var s = seasons[season] || { min: number, max: number };
+    s.min = Math.min(s.min, number);
+    s.max = Math.max(s.max, number);
+    seasons[season] = s;
+  }
+  var order = Object.keys(seasons).map(Number).sort(function (a, b) { return a - b; });
+  if (order.length === 0) return chapters;
+
+  var offsets = {};
+  var end = 0;
+  for (var j = 0; j < order.length; j++) {
+    var info = seasons[order[j]];
+    // Restarts when it begins at or below where the numbering already is.
+    var offset = j > 0 && info.min <= end ? end : 0;
+    offsets[order[j]] = offset;
+    end = Math.max(end, offset + info.max);
+  }
+  for (var k = 0; k < chapters.length; k++) {
+    if (parsed[k]) chapters[k].chapterNumber = offsets[parsed[k].season] + parsed[k].number;
+  }
+  return chapters;
+}
+
 // MARK: - Listings
 
 /**
@@ -254,7 +301,7 @@ var KumaSource = {
         dateUpload: uploaded
       });
     }
-    return out;
+    return runSeasonsOn(out);
   },
 
   getPageList: function (chapterUrl) {
